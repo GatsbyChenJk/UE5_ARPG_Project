@@ -8,6 +8,9 @@
 #include "GenericTeamAgentInterface.h"
 #include "ARPGBaseCharacter.generated.h"
 
+class UARPGAbilitySystemComponent;
+class UARPGMontageNetTransport;
+
 class UCharacterHealthManager;
 class UStaminaManagerComponent;
 class UCharacterShieldComponent;
@@ -35,8 +38,14 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	// GAS start
+	/** 返回原生 ASC 基类指针（兼容 IAbilitySystemInterface / 现有调用方） */
 	UFUNCTION(BlueprintCallable, Category = "Character|GAS")
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const { return nullptr; };
+
+	/** 返回类型安全的 ARPG 自定义 ASC；需要 Socket 复制/多 Mesh 蒙太奇时使用此接口 */
+	UFUNCTION(BlueprintCallable, Category = "Character|GAS")
+	virtual UARPGAbilitySystemComponent* GetARPGAbilitySystemComponent() const { return nullptr; };
+
 	UFUNCTION(BlueprintCallable, Category = "Character|GAS")
 	virtual const UInGameCharacterAttributeSet* GetAttributeSet() const { return nullptr; };
 	// GAS end
@@ -110,7 +119,13 @@ protected:
 	// Team Affiliation end
 
 protected:
-	
+
+	/** Network transport for UARPGMeshSyncMontageProxy. Holds the Server RPC
+	 *  and replicated property so the proxy can sync mesh transforms without
+	 *  adding replication logic to this class. */
+	// UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Animation")
+	// TObjectPtr<UARPGMontageNetTransport> MontageNetTransport;
+
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCharacterDamageComponent* CachedDamageComp;
 

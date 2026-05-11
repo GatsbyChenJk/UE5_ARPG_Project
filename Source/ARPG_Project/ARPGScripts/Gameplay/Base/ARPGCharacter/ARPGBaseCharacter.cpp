@@ -3,6 +3,9 @@
 
 #include "ARPGBaseCharacter.h"
 
+#include "Animation/ARPGMeshMontageReplicator.h"
+#include "AIController.h"
+#include "Animation/AnimInstance.h"
 #include "ARPGScripts/Gameplay/Character/InGame/CharacterDamageComponent.h"
 #include "ARPGScripts/Gameplay/Character/InGame/HealthManager/CharacterHealthManager.h"
 #include "ARPGScripts/Gameplay/Character/SpecialOperations/RollComponent.h"
@@ -24,6 +27,7 @@ AARPGBaseCharacter::AARPGBaseCharacter()
 	CachedShieldComp = CreateDefaultSubobject<UCharacterShieldComponent>(TEXT("ShieldComp"));
 	CachedStaminaMgrComp = CreateDefaultSubobject<UStaminaManagerComponent>(TEXT("StaminaMgrComp"));
 	CachedHealthMgrComp = CreateDefaultSubobject<UCharacterHealthManager>(TEXT("HealthMgrComp"));
+	//MontageNetTransport = CreateDefaultSubobject<UARPGMontageNetTransport>(TEXT("MontageNetTransport"));
 }
 
 void AARPGBaseCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -202,6 +206,4 @@ bool AARPGBaseCharacter::IsFriendlyTo(AActor* OtherActor) const
 	// 相同阵营为友方
 	return OtherTeamID == GetTeamID();
 }
-
-
 

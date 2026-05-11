@@ -16,6 +16,7 @@ UARPGAT_PlayMontageForMeshAndWaitForEvent::UARPGAT_PlayMontageForMeshAndWaitForE
 	bReplicateMontage = true;
 	OverrideBlendOutTimeForCancelAbility = -1.f;
 	OverrideBlendOutTimeForStopWhenEndAbility = -1.f;
+	bActivated = false;
 }
 
 UARPGAbilitySystemComponent* UARPGAT_PlayMontageForMeshAndWaitForEvent::GetTargetASC()
@@ -127,6 +128,15 @@ void UARPGAT_PlayMontageForMeshAndWaitForEvent::Activate()
 		return;
 	}
 
+	if (bActivated)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("ARPGAT_PlayMontageForMeshAndWaitForEvent::Activate called more than once on instance %s – ignored"),
+			*InstanceName.ToString());
+		return;
+	}
+	bActivated = true;
+
 	if (!Mesh)
 	{
 		UE_LOG(LogTemp, Error, TEXT("%s: invalid Mesh"), *FString(__FUNCTION__));
@@ -141,11 +151,15 @@ void UARPGAT_PlayMontageForMeshAndWaitForEvent::Activate()
 		UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
 		if (AnimInstance != nullptr)
 		{
-			// Bind gameplay event delegate
-			EventHandle = ARPGASC->AddGameplayEventTagContainerDelegate(
-				EventTags,
-				FGameplayEventTagMulticastDelegate::FDelegate::CreateUObject(
-					this, &UARPGAT_PlayMontageForMeshAndWaitForEvent::OnGameplayEvent));
+			// Bind gameplay event delegate on authority only (mirrors WaitForEvents behaviour).
+			const bool bIsAuthority = ARPGASC->IsOwnerActorAuthoritative();
+			if (bIsAuthority)
+			{
+				EventHandle = ARPGASC->AddGameplayEventTagContainerDelegate(
+					EventTags,
+					FGameplayEventTagMulticastDelegate::FDelegate::CreateUObject(
+						this, &UARPGAT_PlayMontageForMeshAndWaitForEvent::OnGameplayEvent));
+			}
 
 			if (ARPGASC->PlayMontageForMesh(Ability, Mesh, Ability->GetCurrentActivationInfo(),
 				MontageToPlay, Rate, StartSection, bReplicateMontage) > 0.f)

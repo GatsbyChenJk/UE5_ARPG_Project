@@ -11,7 +11,6 @@
 #include "ARPGScripts/Gameplay/Weapon/CharacterAttackComponent.h"
 #include "ARPGScripts/Gameplay/Weapon/CharacterShieldComponent.h"
 #include "ARPGScripts/Gameplay/Weapon/WeaponBase/ARPGBaseWeapon.h"
-#include "ARPGScripts/Gameplay/Weapon/WeaponBase/CharacterMeleeWeapon.h"
 #include "Engine/OverlapResult.h"
 #include "Net/UnrealNetwork.h"
 
@@ -19,6 +18,7 @@ UCharacterDamageComponent::UCharacterDamageComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
+	SetIsReplicatedByDefault(true);
 }
 
 void UCharacterDamageComponent::Server_SetCharacterGetDamage_Implementation(FCharacterData CharData)
@@ -127,7 +127,7 @@ void UCharacterDamageComponent::TickDetection_UnarmedAI(FVector HitLocation)
 	if (IsValid(AttackCharacter))
 	{
 		//GEngine->AddOnScreenDebugMessage(-1,0.0f,FColor::Red,FString::Printf(TEXT("TickDetection_AI CurrentRole:%d"),AttackCharacter->GetLocalRole()));
-		if (!AttackCharacter->HasAuthority())
+		if (AttackCharacter->HasAuthority())
 		{
 			SphereOverlapDetection(HitLocation,SphereDetectRadius);
 		}
@@ -174,7 +174,7 @@ void UCharacterDamageComponent::TickDetection_UnarmedCharacter()
 {
 	if (IsValid(AttackCharacter))
 	{
-		if (AttackCharacter->HasAuthority())
+		if (!AttackCharacter->HasAuthority())
 		{
 			return;
 		}
@@ -187,7 +187,7 @@ void UCharacterDamageComponent::TickDetection_UnarmedCharacter()
 		 {
 			auto SocketTransform = CharMesh->GetSocketTransform(FName(*SocketName));
 			HitLocation = SocketTransform.GetLocation();
-			//UE_LOG(LogTemp,Warning,TEXT("HitLocation:%s"),*HitLocation.ToString());
+			UE_LOG(LogTemp,Warning,TEXT("HitLocation:%s"),*HitLocation.ToString());
 		 }
 		
 		Server_SphereOverlapDetection(HitLocation,SphereDetectRadius);

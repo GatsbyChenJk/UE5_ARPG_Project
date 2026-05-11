@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
 #include "AbilitySystemInterface.h"
-#include "AbilitySystemComponent.h"
+#include "ARPGScripts/Gameplay/Base/AbilitySystem/ARPGAbilitySystemComponent.h"
 #include "ARPGScripts/Gameplay/Character/FCharacterManifest.h"
 #include "ARPGScripts/Gameplay/Character/InGame/AInGameCharacter.h"
 #include "AInGamePlayerState.generated.h"
@@ -32,6 +32,10 @@ public:
 	
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
+	/** 返回类型安全的 ARPG 自定义 ASC，供需要 ARPG 扩展功能（Socket 复制、多 Mesh 蒙太奇）的系统使用 */
+	UFUNCTION(BlueprintCallable, Category = "GAS")
+	UARPGAbilitySystemComponent* GetARPGAbilitySystemComponent() const;
+
 	const UInGameCharacterAttributeSet* GetAttributeSet() const {return AttributeSet;};
 
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
@@ -41,7 +45,7 @@ public:
 	UInGamePlayerConfig* IDConfigDataAsset;
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS")
-	UAbilitySystemComponent* AbilitySystemComponent;
+	TObjectPtr<UARPGAbilitySystemComponent> AbilitySystemComponent;
 	
 	UPROPERTY()
 	const UInGameCharacterAttributeSet* AttributeSet;

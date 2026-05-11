@@ -4,6 +4,7 @@
 #include "InGameAICharacter.h"
 
 #include "AInGameCharacter.h"
+#include "ARPGScripts/Gameplay/Base/AbilitySystem/ARPGAbilitySystemComponent.h"
 #include "CharacterDamageComponent.h"
 #include "ARPGScripts/Gameplay/Base/ARPGEventHandler/ARPGEventMacros.h"
 #include "ARPGScripts/Gameplay/Character/FAIManifest.h"
@@ -33,9 +34,9 @@ AInGameAICharacter::AInGameAICharacter()
 
 	bReplicates = true;
 	
-	AIAbilitySystemComp = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AIAbilitySystemComp"));
+	AIAbilitySystemComp = CreateDefaultSubobject<UARPGAbilitySystemComponent>(TEXT("AIAbilitySystemComp"));
 	AIAbilitySystemComp->SetIsReplicated(true);
-	AIAbilitySystemComp->SetReplicationMode(EGameplayEffectReplicationMode::Minimal); 
+	AIAbilitySystemComp->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
 	
 	AIAttributeSet = CreateDefaultSubobject<UInGameCharacterAttributeSet>(TEXT("AIAttributeSet"));
 	AIPerceptionComp = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("AIPerceptionComp"));

@@ -6,7 +6,6 @@
 #include "ARPGScripts/Gameplay/Combat/AInGamePlayerState.h"
 #include "Net/UnrealNetwork.h"
 #include "WeaponBase/ARPGBaseWeapon.h"
-#include "GameplayTagContainer.h"
 #include "ARPGScripts/Gameplay/Combat/UInGameCharacterAttributeSet.h"
 
 UEquipmentComponent::UEquipmentComponent()
@@ -121,6 +120,7 @@ void UEquipmentComponent::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(UEquipmentComponent,CurrentWeapon)
+	DOREPLIFETIME(UEquipmentComponent,EquipmentSpecHandles)
 }
 
 void UEquipmentComponent::RemoveEquipmentAbility(UAbilitySystemComponent* ASC)

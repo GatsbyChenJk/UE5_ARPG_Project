@@ -39,12 +39,18 @@ public:
 	UFUNCTION(BlueprintCallable,Server,Reliable)
 	void Server_GetDetectSocketNameByCurrentCombo();
 
-	UFUNCTION(client,Reliable)
-	void Client_SetDetectSocketName(const FName& SocketName);
+	// UFUNCTION(client,Reliable)
+	// void Client_SetDetectSocketName(const FName& SocketName);
 
 	UFUNCTION(BlueprintCallable)
 	FName GetDetectSocketName(int32 currentCombo) const { return DetectSockets.IsValidIndex(currentCombo) ? DetectSockets[currentCombo]: FName(); };
 
+	virtual UAnimMontage* GetCurrentMontage() override
+	{
+		if (GetOwnerRole() == ROLE_AutonomousProxy) CurrentAttackCombo = (CurrentAttackCombo+1) % EquipmentSpecHandles.Num();
+		//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, FString::Printf(TEXT("Current AttackMontage Index:%d,Current Role:%d"),CurrentAttackCombo,GetOwnerRole()));
+		return AttackMontages.IsValidIndex(CurrentAttackCombo) ? AttackMontages[CurrentAttackCombo] : nullptr;
+	};
 protected:
 
 	virtual void ActivateSpecialAbilities(UAbilitySystemComponent* ASC, EEquipmentActivateType ActivateType) override;
@@ -59,6 +65,9 @@ protected:
 private:
 	UPROPERTY(Replicated)
 	TArray<FName> DetectSockets;
+
+	UPROPERTY(Replicated)
+	TArray<TObjectPtr<UAnimMontage>> AttackMontages;
 
 	UPROPERTY(Replicated)
 	float CurrentWindow;

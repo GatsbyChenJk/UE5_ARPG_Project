@@ -11,12 +11,12 @@
 #include "ARPGScripts/Gameplay/Character/InGame/InGameAICharacter.h"
 #include "ARPGScripts/Gameplay/Character/InGame/StaminaManager/UStaminaManagerComponent.h"
 #include "Net/UnrealNetwork.h"
-#include "WeaponBase/ARPGBaseWeapon.h"
 
 
 UCharacterAttackComponent::UCharacterAttackComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+	SetIsReplicatedByDefault(true);
 }
 
 void UCharacterAttackComponent::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -28,6 +28,7 @@ void UCharacterAttackComponent::GetLifetimeReplicatedProps(TArray<class FLifetim
 	DOREPLIFETIME(UCharacterAttackComponent,bIsAttackCombo)
 	DOREPLIFETIME(UCharacterAttackComponent,AttackWindow)
 	DOREPLIFETIME(UCharacterAttackComponent,DetectSockets)
+	DOREPLIFETIME(UCharacterAttackComponent,AttackMontages)
 }
 
 void UCharacterAttackComponent::Server_CharacterHandleAttack_Implementation()
@@ -35,20 +36,21 @@ void UCharacterAttackComponent::Server_CharacterHandleAttack_Implementation()
 	//GEngine->AddOnScreenDebugMessage(-1,1.f,FColor::Green,FString::Printf(TEXT("Current Character Combo:%d"),CurrentAttackCombo));
 	if (CurrentAttackCombo == 0)
 	{
-		Server_CharacterActivateAbility();
+		//Server_CharacterActivateAbility();
 		bIsAttackCombo = EquipmentSpecHandles.Num() > 0;
 		CurrentAttackCombo++;
+		Server_CharacterActivateAbility();
 	}
 	else if (CurrentAttackCombo > 0 && CurrentWindow > 0.f)
 	{
-		Server_CharacterActivateAbility();
+		//Server_CharacterActivateAbility();
 		CurrentAttackCombo = (CurrentAttackCombo + 1) % EquipmentSpecHandles.Num();
+		Server_CharacterActivateAbility();
 	}
 	else if (CurrentAttackCombo > 0)
 	{
 		CurrentWindow = 0;
 		CurrentAttackCombo = 0;
-		
 	}
 }
 
@@ -63,7 +65,7 @@ void UCharacterAttackComponent::ActivateAttack_Internal(UAbilitySystemComponent*
 			StaminaComp->RemoveActiveRecoverStaminaGE();
 		}
 	}
-	
+
 	if (ASC->TryActivateAbility(EquipmentSpecHandles[CurrentAttackCombo]))
 	{
 		PendingSocketIndex = CurrentAttackCombo;
@@ -109,22 +111,22 @@ void UCharacterAttackComponent::Server_GetDetectSocketNameByCurrentCombo_Impleme
 		{
 			DamageComp->SetDetectSocketName(CurrentDetectSocketName);
 
-			Client_SetDetectSocketName(CurrentDetectSocketName);
+			//Client_SetDetectSocketName(CurrentDetectSocketName);
 		}
 	}
 }
 
 
-void UCharacterAttackComponent::Client_SetDetectSocketName_Implementation(const FName& SocketName)
-{
-	if (const auto InGameChar = Cast<AARPGBaseCharacter>(GetOwner()))
-	{
-		if (const auto DamageComp = InGameChar->GetCharacterDamageComponent())
-		{
-			DamageComp->SetDetectSocketName(SocketName);
-		}
-	}
-}
+// void UCharacterAttackComponent::Client_SetDetectSocketName_Implementation(const FName& SocketName)
+// {
+// 	if (const auto InGameChar = Cast<AARPGBaseCharacter>(GetOwner()))
+// 	{
+// 		if (const auto DamageComp = InGameChar->GetCharacterDamageComponent())
+// 		{
+// 			DamageComp->SetDetectSocketName(SocketName);
+// 		}
+// 	}
+// }
 
 void UCharacterAttackComponent::ActivateSpecialAbilities(UAbilitySystemComponent* ASC,
 	EEquipmentActivateType ActivateType)
@@ -160,8 +162,8 @@ void UCharacterAttackComponent::TickCurrentWindow(float DeltaTime)
 {
 	if (CurrentWindow > 0.f && bIsAttackCombo)
 	{
-		// GEngine->AddOnScreenDebugMessage(-1,0.f,FColor::Green,FString::Printf(TEXT("Current Character Window:%f,Character:%s"),
-		// 	CurrentWindow,*GetOwner()->GetName()));
+		GEngine->AddOnScreenDebugMessage(-1,0.f,FColor::Green,FString::Printf(TEXT("Current Character Window:%f,Character:%s"),
+			CurrentWindow,*GetOwner()->GetName()));
 		CurrentWindow -= DeltaTime;
 		if (CurrentWindow <= 0.f)
 		{
@@ -187,10 +189,10 @@ void UCharacterAttackComponent::FindAndAddEquipmentAbilities(const FString& Weap
 	AttackWindow = WeaponConfig.ComboWindow;
 	
 	// add and give abilities
-	for (int i = 0;i<WeaponConfig.EquipmentBaseAbilityClasses.Num();i++)
+	for (int i = 0;i<WeaponConfig.DetectSocketNames.Num();i++)
 	{
 		FGameplayAbilitySpec AttackSpec(
-			WeaponConfig.EquipmentBaseAbilityClasses[i],1,                                  
+			WeaponConfig.ComboAbilityClass,1,                                  
 			EAbilityInputBinds::None, this
 			);
 
@@ -212,6 +214,8 @@ void UCharacterAttackComponent::FindAndAddEquipmentAbilities(const FString& Weap
 	
 	// add detect socket
 	DetectSockets = WeaponConfig.DetectSocketNames;
+
+	AttackMontages = WeaponConfig.ComboMontage;
 }
 
 void UCharacterAttackComponent::Server_CharacterHandleAttackSpecial_Implementation(EEquipmentActivateType ActivateType)

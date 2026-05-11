@@ -117,6 +117,8 @@ private:
 
 	UARPGAbilitySystemComponent* GetTargetASC();
 
+	bool bActivated;
+
 	void OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
 	void OnAbilityCancelled();
 	void OnMontageEnded(UAnimMontage* Montage, bool bInterrupted);

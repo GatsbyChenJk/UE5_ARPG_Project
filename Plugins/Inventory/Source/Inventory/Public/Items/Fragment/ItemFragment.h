@@ -314,7 +314,7 @@ private:
 	FGameplayTag EquipmentType = FGameplayTag::EmptyTag;
 
 	UPROPERTY(EditAnywhere,Category= "Inventory")
-	TEnumAsByte<EWeaponType> WeaponConfigType = EWeaponType::Unarmeds;
+	TEnumAsByte<EWeaponType> WeaponConfigType = EWeaponType::Unarmed;
 };
 
 // Equip Fragments End

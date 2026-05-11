@@ -24,18 +24,18 @@ void UCharacterShieldComponent::FindAndAddEquipmentAbilities(const FString& Weap
 	Super::FindAndAddEquipmentAbilities(WeaponID, ASC);
 
 	// add shield ability
-	for (int i = 0;i<WeaponConfig.EquipmentBaseAbilityClasses.Num();i++)
-	{
-		FGameplayAbilitySpec AttackSpec(
-			WeaponConfig.EquipmentBaseAbilityClasses[i],
+	
+	FGameplayAbilitySpec AttackSpec(
+			WeaponConfig.EquipmentBaseAbilityClass,
 			1,                                  
 			EAbilityInputBinds::None, 
 			this                                
 		);
 
-		FGameplayAbilitySpecHandle EquipmentHandle = ASC->GiveAbility(AttackSpec);
-		EquipmentSpecHandles.Add(EquipmentHandle);
-	}
+	FGameplayAbilitySpecHandle EquipmentHandle = ASC->GiveAbility(AttackSpec);
+	EquipmentSpecHandles.Add(EquipmentHandle);
+
+	ShieldMontage = WeaponConfig.EquipmentMontage;
 
 	// add special ability
 	for (auto SpecialAbilityConfig : WeaponConfig.SpecialAbilityConfig)
@@ -93,6 +93,11 @@ AARPGBaseWeapon* UCharacterShieldComponent::GetCurrentEquippedWeapon()
 		}
 		return WeaponActor;
 	}
+}
+
+void UCharacterShieldComponent::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 }
 
 void UCharacterShieldComponent::Server_ActivateShieldAbility_Implementation()

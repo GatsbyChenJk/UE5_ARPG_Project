@@ -4,6 +4,7 @@
 #include "AInGameCharacter.h"
 
 #include "CharacterDamageComponent.h"
+#include "ARPGScripts/Gameplay/Base/AbilitySystem/ARPGAbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
 #include "GameplayTagsManager.h"
 #include "ARPGScripts/Gameplay/Base/GameModes/InGameMode.h"
@@ -93,6 +94,11 @@ UAbilitySystemComponent* AAInGameCharacter::GetAbilitySystemComponent() const
 		return PS->GetAbilitySystemComponent();
 	}
 	return nullptr;
+}
+
+UARPGAbilitySystemComponent* AAInGameCharacter::GetARPGAbilitySystemComponent() const
+{
+	return Cast<UARPGAbilitySystemComponent>(GetAbilitySystemComponent());
 }
 
 void AAInGameCharacter::OnRep_PlayerState()
@@ -244,26 +250,26 @@ const UInGameCharacterAttributeSet* AAInGameCharacter::GetAttributeSet() const
 void AAInGameCharacter::TryInitializeClientASC()
 {
 	AAInGamePlayerState* PS = GetPlayerState<AAInGamePlayerState>();
-	
+
 	if (!PS)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TryInitializeClientASC: PlayerState is null."));
 		return;
 	}
-    
-	UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
+
+	UARPGAbilitySystemComponent* ASC = PS->GetARPGAbilitySystemComponent();
 	if (!ASC)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("TryInitializeClientASC: ASC is null."));
+		UE_LOG(LogTemp, Warning, TEXT("TryInitializeClientASC: ARPGAbilitySystemComponent is null."));
 		return;
 	}
 
-	SetupAndInitializeASC(PS,ASC);
+	SetupAndInitializeASC(PS, ASC);
 }
 
-void AAInGameCharacter::SetupAndInitializeASC(AAInGamePlayerState* InGamePlayerState,UAbilitySystemComponent* ASC)
+void AAInGameCharacter::SetupAndInitializeASC(AAInGamePlayerState* InGamePlayerState, UARPGAbilitySystemComponent* ASC)
 {
 	ASC->InitAbilityActorInfo(InGamePlayerState, this);
-	
+
 	InGamePlayerState->InitializeAttributesForClient(this);
 }

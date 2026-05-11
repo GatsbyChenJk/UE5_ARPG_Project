@@ -3,7 +3,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "ARPG_ProjectCharacter.h"
 #include "ARPGScripts/Gameplay/Base/ARPGCharacter/ARPGBaseCharacter.h"
@@ -12,6 +11,7 @@
 #include "TargetLockSystem/PlayerTargetLockComp.h"
 #include "AInGameCharacter.generated.h"
 
+class UARPGAbilitySystemComponent;
 class UARPGEventData_Weapon;
 class USprintComponent;
 class UARPGEventData;
@@ -39,8 +39,11 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 
 	// GAS start
-	
+
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	/** 返回类型安全的 ARPG ASC（从 PlayerState 获取），供装备/蒙太奇系统使用 */
+	virtual UARPGAbilitySystemComponent* GetARPGAbilitySystemComponent() const override;
 
 	virtual const UInGameCharacterAttributeSet* GetAttributeSet() const override;
 
@@ -129,8 +132,8 @@ public:
 protected:
 	UFUNCTION()
 	void TryInitializeClientASC();
-	
-	void SetupAndInitializeASC(AAInGamePlayerState* PlayerState,UAbilitySystemComponent* ASC);
+
+	void SetupAndInitializeASC(AAInGamePlayerState* PlayerState, UARPGAbilitySystemComponent* ASC);
 private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player Components", meta = (AllowPrivateAccess = "true"))
 	UPlayerTargetLockComp* CachedPlayerTargetLockComp;

@@ -21,7 +21,7 @@
 
 AAInGamePlayerState::AAInGamePlayerState()
 {
-	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AbilitySystemComponent = CreateDefaultSubobject<UARPGAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true); // 启用复制
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 	AttributeSet = CreateDefaultSubobject<UInGameCharacterAttributeSet>(TEXT("AttributeSet"));
@@ -138,6 +138,11 @@ void AAInGamePlayerState::ResetPlayer()
 }
 
 UAbilitySystemComponent* AAInGamePlayerState::GetAbilitySystemComponent() const
+{
+	return Cast<UAbilitySystemComponent>(AbilitySystemComponent);
+}
+
+UARPGAbilitySystemComponent* AAInGamePlayerState::GetARPGAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
 }

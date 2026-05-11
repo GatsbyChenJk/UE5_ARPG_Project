@@ -26,6 +26,7 @@ public class ARPG_Project : ModuleRules
 			"GlobalEventSystem",
 			"OnlineSubsystem", 
 			"OnlineSubsystemUtils",
+			"AnimGraphRuntime",
 			// "OnlineSubsystemSteam"
 		});
 
@@ -33,7 +34,7 @@ public class ARPG_Project : ModuleRules
 		{
 			"GameplayAbilities",
 			"GameplayTags",
-			"GameplayTasks",
+			"GameplayTasks", "AnimGraphRuntime", "AnimGraphRuntime",
 		});
 
 		PublicIncludePaths.AddRange(new string[] {

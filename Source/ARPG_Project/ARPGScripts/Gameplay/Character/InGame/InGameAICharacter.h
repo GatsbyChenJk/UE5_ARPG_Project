@@ -6,6 +6,7 @@
 #include "AIController.h"
 #include "ARPGScripts/Gameplay/AIController/InGameAIController.h"
 #include "ARPGScripts/Gameplay/Base/ARPGCharacter/ARPGBaseCharacter.h"
+#include "ARPGScripts/Gameplay/Base/AbilitySystem/ARPGAbilitySystemComponent.h"
 #include "InGameAICharacter.generated.h"
 
 class UARPGEventData;
@@ -32,8 +33,12 @@ public:
 
 	virtual void Tick(float DeltaTime) override;
 	// GAS start
-	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override { return AIAbilitySystemComp; }
-	
+	/** 返回原生 ASC 基类指针（兼容 IAbilitySystemInterface / 现有调用方） */
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override { return Cast<UAbilitySystemComponent>(AIAbilitySystemComp); }
+
+	/** 返回类型安全的 ARPG ASC，供装备/蒙太奇系统使用 */
+	virtual UARPGAbilitySystemComponent* GetARPGAbilitySystemComponent() const override { return AIAbilitySystemComp; }
+
 	virtual const UInGameCharacterAttributeSet* GetAttributeSet() const override { return AIAttributeSet; }
 
 	void AIBasicDataInitialize(FAIManifest AIConfigData);
@@ -90,7 +95,7 @@ private:
 	// UI end
 	
 	// GAS start
-	UAbilitySystemComponent* AIAbilitySystemComp;
+	UARPGAbilitySystemComponent* AIAbilitySystemComp;
 
 	const UInGameCharacterAttributeSet* AIAttributeSet;
 	// GAS end

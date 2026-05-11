@@ -49,6 +49,9 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	float GetEquipmentDefenseStaminaAttribute(AARPGBaseCharacter* OwnerChar);
+
+	UFUNCTION(BlueprintCallable)
+	virtual UAnimMontage* GetCurrentMontage() {return nullptr;};
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 	void RemoveEquipmentAbility(UAbilitySystemComponent* ASC);
@@ -59,7 +62,8 @@ protected:
 	
 	UPROPERTY(Replicated)
 	AARPGBaseWeapon* CurrentWeapon;
-	
+
+	UPROPERTY(Replicated)
 	TArray<FGameplayAbilitySpecHandle> EquipmentSpecHandles;
 	
 	TMap<TEnumAsByte<EEquipmentActivateType>,FGameplayAbilitySpecHandle> SpecialAttackAbilitySpecMap;

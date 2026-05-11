@@ -39,4 +39,14 @@ public:
 	
 
 	virtual AARPGBaseWeapon* GetCurrentEquippedWeapon() override;
+
+	virtual UAnimMontage* GetCurrentMontage() override
+	{
+		return ShieldMontage;
+	};
+protected:
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+private:
+	UPROPERTY(Replicated)
+	TObjectPtr<UAnimMontage> ShieldMontage;
 };

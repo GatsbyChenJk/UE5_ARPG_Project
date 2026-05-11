@@ -9,7 +9,7 @@ class UGameplayAbility;
 UENUM(BlueprintType)
 enum EWeaponType : uint8
 {
-	Unarmeds	UMETA(DisplayName = "Unarmeds"),
+	Unarmed	UMETA(DisplayName = "Unarmed"),
 	Sword		UMETA(DisplayName = "Sword"),
 	Shield		UMETA(DisplayName = "Shield"),
 };
@@ -48,8 +48,24 @@ struct FWeaponManifest : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TEnumAsByte<EWeaponType> WeaponType;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	TArray<TSubclassOf<UGameplayAbility>> EquipmentBaseAbilityClasses;
+	// for base equipment ability
+	UPROPERTY(EditAnywhere, BlueprintReadWrite,Category="WeaponManifest|EquipmentBase")
+	TSubclassOf<UGameplayAbility> EquipmentBaseAbilityClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite,Category="WeaponManifest|EquipmentBase")
+	TObjectPtr<UAnimMontage> EquipmentMontage;
+	// ------------------------------------------
+
+	// specially for combo ability weapon
+	UPROPERTY(EditAnywhere, BlueprintReadWrite,Category="WeaponManifest|Combo")
+	TSubclassOf<UGameplayAbility> ComboAbilityClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite,Category="WeaponManifest|Combo")
+	TArray<TObjectPtr<UAnimMontage>> ComboMontage;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite,Category="WeaponManifest|Combo")
+	float ComboWindow;
+	// --------------------------------------------
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<FEquipmentSpecialAbilityConfig> SpecialAbilityConfig;
@@ -59,7 +75,4 @@ struct FWeaponManifest : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TSubclassOf<AActor> WeaponClass;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float ComboWindow;
 };
