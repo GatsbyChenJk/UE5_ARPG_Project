@@ -5,7 +5,7 @@
 
 #include "Components/TextBlock.h"
 
-void UInventoryLeafText::SetText(const FText& Text) const
+void UInventoryLeafText::SetLeafText(const FText& Text) const
 {
 	Text_LeafText->SetText(Text);
 }

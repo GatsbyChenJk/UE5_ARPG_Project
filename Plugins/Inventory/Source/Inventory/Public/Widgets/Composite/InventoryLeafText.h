@@ -6,6 +6,7 @@
 #include "InventoryLeaf.h"
 #include "InventoryLeafText.generated.h"
 
+class UTextBlock;
 /**
  * 
  */
@@ -14,7 +15,7 @@ class INVENTORY_API UInventoryLeafText : public UInventoryLeaf
 {
 	GENERATED_BODY()
 public:
-	void SetText(const FText& Text) const;
+	void SetLeafText(const FText& Text) const;
 	virtual void NativePreConstruct() override;
 
 private:
