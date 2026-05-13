@@ -12,6 +12,42 @@ void UPoolSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	// 绑定世界清理事件，用于在World切换/销毁时释放对应的池
 	FWorldDelegates::OnWorldCleanup.AddUObject(this, &UPoolSubsystem::OnWorldCleanup);
+
+	// 自动预热：如果有配置文件，预热所有标记为自动预热的池
+	if (CurrentConfig)
+	{
+		TArray<TSubclassOf<AActor>> AutoPrewarmClasses = CurrentConfig->GetAutoPrewarmClasses();
+		if (AutoPrewarmClasses.Num() > 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("PoolSubsystem: Auto-prewarming %d actor classes..."), AutoPrewarmClasses.Num());
+
+			// 延迟到下一帧执行预热，确保World已完全初始化
+			FTimerHandle PrewarmTimerHandle;
+			GetGameInstance()->GetTimerManager().SetTimerForNextTick([this, AutoPrewarmClasses]()
+			{
+				for (TSubclassOf<AActor> ActorClass : AutoPrewarmClasses)
+				{
+					if (!ActorClass)
+					{
+						continue;
+					}
+
+					FPoolConfig Config = CurrentConfig->GetConfigForClass(ActorClass);
+					if (Config.bEnablePooling && Config.bAutoPrewarm && Config.InitialSize > 0)
+					{
+						// 获取主World（通常是第一个GameWorld）
+						UWorld* World = GetGameInstance()->GetWorld();
+						if (World && World->GetNetMode() != NM_Client)
+						{
+							PrewarmPool(World, ActorClass, Config.InitialSize);
+							UE_LOG(LogTemp, Log, TEXT("PoolSubsystem: Prewarmed %d instances of %s"),
+								Config.InitialSize, *ActorClass->GetName());
+						}
+					}
+				}
+			});
+		}
+	}
 }
 
 void UPoolSubsystem::Deinitialize()
@@ -23,7 +59,10 @@ void UPoolSubsystem::Deinitialize()
 		{
 			for (auto& PoolPair : WorldPair.Value)
 			{
-				DestroyPool(PoolPair.Value);
+				if (PoolPair.Value.IsValid())
+				{
+					DestroyPool(*PoolPair.Value);
+				}
 			}
 		}
 	}
@@ -50,41 +89,74 @@ AActor* UPoolSubsystem::RequestActor(UObject* WorldContextObject, TSubclassOf<AA
 		return nullptr;
 	}
 
-	FActorPool* Pool = GetOrCreatePool(World, ActorClass);
-	if (!Pool)
+	TSharedPtr<FActorPool> Pool = GetOrCreatePool(World, ActorClass);
+	if (!Pool.IsValid())
 	{
 		return nullptr;
 	}
 
 	AActor* Actor = nullptr;
+	bool bNeedsDynamicCreation = false;
 
-	// 1. 尝试从可用列表中取出一个
-	while (!Actor && Pool->AvailableActors.Num() > 0)
+	// 线程安全地从池中取出Actor
 	{
-		Actor = Pool->AvailableActors.Pop();
-		// 如果Actor已被GC，继续取下一个
-		if (!IsValid(Actor))
+		FScopeLock ScopedLock(&Pool->PoolLock);
+
+		// 1. 尝试从可用队列中取出一个
+		while (!Actor && !Pool->AvailableActors.IsEmpty())
 		{
-			Actor = nullptr;
+			TObjectPtr<AActor> PoppedActor;
+			if (Pool->AvailableActors.Dequeue(PoppedActor))
+			{
+				Pool->AvailableCount--; // 更新计数
+				// 如果Actor已被GC，继续取下一个
+				if (IsValid(PoppedActor))
+				{
+					Actor = PoppedActor;
+				}
+			}
 		}
-	}
 
-	// 2. 没有可用Actor则动态创建
-	if (!Actor)
-	{
-		const bool bCanExpand = (Pool->MaxSize <= 0) || (Pool->InUseActors.Num() < Pool->MaxSize);
-		if (bCanExpand)
+		// 2. 检查是否需要动态创建
+		if (!Actor)
 		{
-			FActorSpawnParameters SpawnParams;
-			SpawnParams.Owner = Owner;
-			SpawnParams.Instigator = Instigator;
-			Actor = CreatePooledActor(World, ActorClass, SpawnParams);
+			const int32 CurrentTotal = Pool->InUseActors.Num();
+			const bool bCanExpand = (Pool->MaxSize <= 0) || (CurrentTotal < Pool->MaxSize);
+			if (bCanExpand)
+			{
+				bNeedsDynamicCreation = true;
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Pool for %s is full (MaxSize: %d). Consider increasing MaxSize."),
+					*ActorClass->GetName(), Pool->MaxSize);
+				return nullptr;
+			}
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Pool for %s is full (MaxSize: %d). Consider increasing MaxSize."),
-				*ActorClass->GetName(), Pool->MaxSize);
-			return nullptr;
+			// 3. 添加到使用中集合
+			Pool->InUseActors.Add(Actor);
+			Pool->AllPooledActors.Add(Actor);
+			Pool->TotalRequests++;
+		}
+	}
+
+	// 在锁外创建Actor以避免长时间持锁
+	if (bNeedsDynamicCreation)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = Owner;
+		SpawnParams.Instigator = Instigator;
+		Actor = CreatePooledActor(World, ActorClass, SpawnParams);
+
+		if (Actor)
+		{
+			FScopeLock ScopedLock(&Pool->PoolLock);
+			Pool->InUseActors.Add(Actor);
+			Pool->AllPooledActors.Add(Actor);
+			Pool->TotalRequests++;
+			Pool->DynamicCreations++;
 		}
 	}
 
@@ -93,11 +165,8 @@ AActor* UPoolSubsystem::RequestActor(UObject* WorldContextObject, TSubclassOf<AA
 		return nullptr;
 	}
 
-	// 3. 激活Actor
+	// 4. 激活Actor（在锁外执行，避免阻塞）
 	ActivatePooledActor(Actor, SpawnTransform, Owner, Instigator);
-
-	// 4. 添加到使用中集合
-	Pool->InUseActors.Add(Actor);
 
 	// 5. 网络同步：强制立即更新网络状态
 	if (Actor->GetIsReplicated())
@@ -139,18 +208,38 @@ void UPoolSubsystem::ReleaseActor(UObject* WorldContextObject, AActor* Actor)
 	}
 
 	// 查找所属池
-	FActorPool* Pool = FindPool(World, Actor->GetClass());
-	if (Pool && Pool->InUseActors.Contains(Actor))
+	TSharedPtr<FActorPool> Pool = FindPool(World, Actor->GetClass());
+	if (Pool.IsValid())
 	{
-		// 广播委托
-		OnActorReleased.Broadcast(Actor->GetClass(), Actor);
+		bool bWasInUse = false;
+		{
+			FScopeLock ScopedLock(&Pool->PoolLock);
+			bWasInUse = Pool->InUseActors.Contains(Actor);
 
-		// 停用Actor
-		DeactivatePooledActor(Actor);
+			if (bWasInUse)
+			{
+				// 从使用集合移除，加入可用队列
+				Pool->InUseActors.Remove(Actor);
+				Pool->AvailableActors.Enqueue(Actor);
+				Pool->AvailableCount++; // 更新计数
+				Pool->TotalReleases++;
+			}
+		}
 
-		// 从使用集合移除，加入可用列表
-		Pool->InUseActors.Remove(Actor);
-		Pool->AvailableActors.Add(Actor);
+		if (bWasInUse)
+		{
+			// 广播委托（在锁外）
+			OnActorReleased.Broadcast(Actor->GetClass(), Actor);
+
+			// 停用Actor（在锁外）
+			DeactivatePooledActor(Actor);
+		}
+		else
+		{
+			// Actor不在使用中，直接销毁
+			UE_LOG(LogTemp, Warning, TEXT("ReleaseActor: Actor %s is not in use, destroying."), *Actor->GetName());
+			Actor->Destroy();
+		}
 	}
 	else
 	{
@@ -174,8 +263,8 @@ void UPoolSubsystem::PrewarmPool(UObject* WorldContextObject, TSubclassOf<AActor
 		return;
 	}
 
-	FActorPool* Pool = GetOrCreatePool(World, ActorClass);
-	if (!Pool)
+	TSharedPtr<FActorPool> Pool = GetOrCreatePool(World, ActorClass);
+	if (!Pool.IsValid())
 	{
 		return;
 	}
@@ -185,7 +274,12 @@ void UPoolSubsystem::PrewarmPool(UObject* WorldContextObject, TSubclassOf<AActor
 
 	for (int32 i = 0; i < Count; ++i)
 	{
-		const int32 CurrentTotal = Pool->AvailableActors.Num() + Pool->InUseActors.Num();
+		int32 CurrentTotal = 0;
+		{
+			FScopeLock ScopedLock(&Pool->PoolLock);
+			CurrentTotal = Pool->AvailableCount + Pool->InUseActors.Num();
+		}
+
 		const bool bCanCreate = (Pool->MaxSize <= 0) || (CurrentTotal < Pool->MaxSize);
 
 		if (bCanCreate)
@@ -193,7 +287,10 @@ void UPoolSubsystem::PrewarmPool(UObject* WorldContextObject, TSubclassOf<AActor
 			AActor* NewActor = CreatePooledActor(World, ActorClass, SpawnParams);
 			if (NewActor)
 			{
-				Pool->AvailableActors.Add(NewActor);
+				FScopeLock ScopedLock(&Pool->PoolLock);
+				Pool->AvailableActors.Enqueue(NewActor);
+				Pool->AllPooledActors.Add(NewActor);
+				Pool->AvailableCount++; // 更新计数
 			}
 		}
 		else
@@ -212,15 +309,18 @@ void UPoolSubsystem::ClearPool(UObject* WorldContextObject, TSubclassOf<AActor> 
 		return;
 	}
 
-	TMap<TSubclassOf<AActor>, FActorPool>* Pools = GetPoolsForWorld(World);
+	TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* Pools = GetPoolsForWorld(World);
 	if (!Pools)
 	{
 		return;
 	}
 
-	if (FActorPool* Pool = Pools->Find(ActorClass))
+	if (TSharedPtr<FActorPool>* PoolPtr = Pools->Find(ActorClass))
 	{
-		DestroyPool(*Pool);
+		if (PoolPtr->IsValid())
+		{
+			DestroyPool(**PoolPtr);
+		}
 		Pools->Remove(ActorClass);
 
 		UE_LOG(LogTemp, Log, TEXT("ClearPool: Destroyed pool for %s in World %s"),
@@ -238,19 +338,25 @@ void UPoolSubsystem::ClearAllPools(UObject* WorldContextObject)
 		{
 			for (auto& PoolPair : WorldPair.Value)
 			{
-				DestroyPool(PoolPair.Value);
+				if (PoolPair.Value.IsValid())
+				{
+					DestroyPool(*PoolPair.Value);
+				}
 			}
 		}
 		WorldPools.Empty();
 		return;
 	}
 
-	TMap<TSubclassOf<AActor>, FActorPool>* Pools = GetPoolsForWorld(World);
+	TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* Pools = GetPoolsForWorld(World);
 	if (Pools)
 	{
 		for (auto& PoolPair : *Pools)
 		{
-			DestroyPool(PoolPair.Value);
+			if (PoolPair.Value.IsValid())
+			{
+				DestroyPool(*PoolPair.Value);
+			}
 		}
 		Pools->Empty();
 	}
@@ -264,8 +370,8 @@ int32 UPoolSubsystem::GetPoolAvailableCount(UObject* WorldContextObject, TSubcla
 		return 0;
 	}
 
-	const FActorPool* Pool = FindPool(World, ActorClass);
-	return Pool ? Pool->AvailableActors.Num() : 0;
+	TSharedPtr<const FActorPool> Pool = FindPool(World, ActorClass);
+	return Pool.IsValid() ? Pool->GetAvailableCount() : 0;
 }
 
 int32 UPoolSubsystem::GetPoolInUseCount(UObject* WorldContextObject, TSubclassOf<AActor> ActorClass) const
@@ -276,8 +382,8 @@ int32 UPoolSubsystem::GetPoolInUseCount(UObject* WorldContextObject, TSubclassOf
 		return 0;
 	}
 
-	const FActorPool* Pool = FindPool(World, ActorClass);
-	return Pool ? Pool->InUseActors.Num() : 0;
+	TSharedPtr<const FActorPool> Pool = FindPool(World, ActorClass);
+	return Pool.IsValid() ? Pool->GetInUseCount() : 0;
 }
 
 int32 UPoolSubsystem::GetPoolTotalCount(UObject* WorldContextObject, TSubclassOf<AActor> ActorClass) const
@@ -288,8 +394,39 @@ int32 UPoolSubsystem::GetPoolTotalCount(UObject* WorldContextObject, TSubclassOf
 		return 0;
 	}
 
-	const FActorPool* Pool = FindPool(World, ActorClass);
-	return Pool ? (Pool->AvailableActors.Num() + Pool->InUseActors.Num()) : 0;
+	TSharedPtr<const FActorPool> Pool = FindPool(World, ActorClass);
+	return Pool.IsValid() ? Pool->GetTotalCount() : 0;
+}
+
+void UPoolSubsystem::GetPoolStats(UObject* WorldContextObject, TSubclassOf<AActor> ActorClass,
+	int32& OutTotalRequests, int32& OutTotalReleases, int32& OutDynamicCreations) const
+{
+	OutTotalRequests = 0;
+	OutTotalReleases = 0;
+	OutDynamicCreations = 0;
+
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	if (!World || !ActorClass)
+	{
+		return;
+	}
+
+	TSharedPtr<const FActorPool> Pool = FindPool(World, ActorClass);
+	if (Pool.IsValid())
+	{
+		FScopeLock ScopedLock(&Pool->PoolLock);
+		OutTotalRequests = Pool->TotalRequests;
+		OutTotalReleases = Pool->TotalReleases;
+		OutDynamicCreations = Pool->DynamicCreations;
+	}
+}
+
+void UPoolSubsystem::ReleaseActors(UObject* WorldContextObject, const TArray<AActor*>& Actors)
+{
+	for (AActor* Actor : Actors)
+	{
+		ReleaseActor(WorldContextObject, Actor);
+	}
 }
 
 bool UPoolSubsystem::IsActorPooled(UObject* WorldContextObject, AActor* Actor) const
@@ -309,13 +446,16 @@ bool UPoolSubsystem::IsActorPooled(UObject* WorldContextObject, AActor* Actor) c
 		return false;
 	}
 
-	const FActorPool* Pool = FindPool(World, Actor->GetClass());
-	if (!Pool)
+	TSharedPtr<const FActorPool> Pool = FindPool(World, Actor->GetClass());
+	if (!Pool.IsValid())
 	{
 		return false;
 	}
 
-	return Pool->AvailableActors.Contains(Actor) || Pool->InUseActors.Contains(Actor);
+	FScopeLock ScopedLock(&Pool->PoolLock);
+
+	// 使用 AllPooledActors 进行 O(1) 查询
+	return Pool->AllPooledActors.Contains(Actor);
 }
 
 void UPoolSubsystem::OnWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources)
@@ -332,7 +472,10 @@ void UPoolSubsystem::OnWorldCleanup(UWorld* World, bool bSessionEnded, bool bCle
 		{
 			for (auto& PoolPair : It->Value)
 			{
-				DestroyPool(PoolPair.Value);
+				if (PoolPair.Value.IsValid())
+				{
+					DestroyPool(*PoolPair.Value);
+				}
 			}
 			It.RemoveCurrent();
 			break;
@@ -385,10 +528,10 @@ void UPoolSubsystem::ActivatePooledActor(AActor* Actor, const FTransform& SpawnT
 	Actor->SetActorEnableCollision(true);
 	Actor->SetActorTickEnabled(true);
 
-	// 调用接口激活方法
-	if (Actor->GetClass()->ImplementsInterface(UPoolableActor::StaticClass()))
+	// 调用接口激活方法（更安全的检查方式）
+	if (IPoolableActor* PoolableActor = Cast<IPoolableActor>(Actor))
 	{
-		IPoolableActor::Execute_OnActivateFromPool(Actor, SpawnTransform);
+		PoolableActor->Execute_OnActivateFromPool(Actor, SpawnTransform);
 	}
 }
 
@@ -399,10 +542,10 @@ void UPoolSubsystem::DeactivatePooledActor(AActor* Actor)
 		return;
 	}
 
-	// 调用接口清理逻辑
-	if (Actor->GetClass()->ImplementsInterface(UPoolableActor::StaticClass()))
+	// 调用接口清理逻辑（更安全的检查方式）
+	if (IPoolableActor* PoolableActor = Cast<IPoolableActor>(Actor))
 	{
-		IPoolableActor::Execute_OnReturnToPool(Actor);
+		PoolableActor->Execute_OnReturnToPool(Actor);
 	}
 
 	// 重置Actor状态回池
@@ -440,115 +583,127 @@ void UPoolSubsystem::ResetActorForPool(AActor* Actor)
 	}
 }
 
-FActorPool* UPoolSubsystem::GetOrCreatePool(UWorld* World, TSubclassOf<AActor> ActorClass)
+TSharedPtr<FActorPool> UPoolSubsystem::GetOrCreatePool(UWorld* World, TSubclassOf<AActor> ActorClass)
 {
 	if (!World || !ActorClass)
 	{
 		return nullptr;
 	}
 
-	TMap<TSubclassOf<AActor>, FActorPool>* Pools = GetPoolsForWorld(World);
+	TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* Pools = GetPoolsForWorld(World);
 	if (!Pools)
 	{
 		// 为这个World创建新的池映射
-		TMap<TSubclassOf<AActor>, FActorPool> NewPools;
+		TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>> NewPools;
 		WorldPools.Add(TWeakObjectPtr<UWorld>(World), NewPools);
 		Pools = &WorldPools[TWeakObjectPtr<UWorld>(World)];
 	}
 
-	if (FActorPool* Existing = Pools->Find(ActorClass))
+	if (TSharedPtr<FActorPool>* Existing = Pools->Find(ActorClass))
 	{
-		return Existing;
+		return *Existing;
 	}
 
 	// 创建新池，读取配置
-	FActorPool NewPool;
-	NewPool.Class = ActorClass;
+	TSharedPtr<FActorPool> NewPool = MakeShared<FActorPool>();
+	NewPool->Class = ActorClass;
 
 	const FPoolConfig Config = GetConfigForClass(ActorClass);
-	NewPool.InitialSize = Config.InitialSize;
-	NewPool.MaxSize = Config.MaxSize;
+	NewPool->InitialSize = Config.InitialSize;
+	NewPool->MaxSize = Config.MaxSize;
 
 	// 如果配置中启用了池
 	if (Config.bEnablePooling)
 	{
 		Pools->Add(ActorClass, NewPool);
-		return &Pools->FindChecked(ActorClass);
+		return NewPool;
 	}
 
 	return nullptr;
 }
 
-FActorPool* UPoolSubsystem::FindPool(UWorld* World, TSubclassOf<AActor> ActorClass)
+TSharedPtr<FActorPool> UPoolSubsystem::FindPool(UWorld* World, TSubclassOf<AActor> ActorClass)
 {
 	if (!World || !ActorClass)
 	{
 		return nullptr;
 	}
 
-	TMap<TSubclassOf<AActor>, FActorPool>* Pools = GetPoolsForWorld(World);
+	TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* Pools = GetPoolsForWorld(World);
 	if (!Pools)
 	{
 		return nullptr;
 	}
 
-	return Pools->Find(ActorClass);
+	TSharedPtr<FActorPool>* Found = Pools->Find(ActorClass);
+	return Found ? *Found : nullptr;
 }
 
-const FActorPool* UPoolSubsystem::FindPool(UWorld* World, TSubclassOf<AActor> ActorClass) const
+TSharedPtr<const FActorPool> UPoolSubsystem::FindPool(UWorld* World, TSubclassOf<AActor> ActorClass) const
 {
 	if (!World || !ActorClass)
 	{
 		return nullptr;
 	}
 
-	const TMap<TSubclassOf<AActor>, FActorPool>* Pools = GetPoolsForWorld(World);
+	const TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* Pools = GetPoolsForWorld(World);
 	if (!Pools)
 	{
 		return nullptr;
 	}
 
-	return Pools->Find(ActorClass);
+	const TSharedPtr<FActorPool>* Found = Pools->Find(ActorClass);
+	return Found ? *Found : nullptr;
 }
 
 void UPoolSubsystem::InternalClearPool(FActorPool& Pool)
 {
+	FScopeLock ScopedLock(&Pool.PoolLock);
+
 	// 将使用中Actor全部标记为可用（但不销毁）
 	for (AActor* Actor : Pool.InUseActors)
 	{
 		if (IsValid(Actor))
 		{
 			DeactivatePooledActor(Actor);
-			Pool.AvailableActors.Add(Actor);
+			Pool.AvailableActors.Enqueue(Actor);
+			Pool.AvailableCount++; // 更新计数
 		}
 	}
 	Pool.InUseActors.Empty();
+	// AllPooledActors 保持不变，因为 Actor 仍在池中
 }
 
 void UPoolSubsystem::DestroyPool(FActorPool& Pool)
 {
+	FScopeLock ScopedLock(&Pool.PoolLock);
+
 	// 销毁所有可用Actor
-	for (AActor* Actor : Pool.AvailableActors)
+	TObjectPtr<AActor> Actor;
+	while (Pool.AvailableActors.Dequeue(Actor))
 	{
-		if (IsValid(Actor) && !Actor->IsPendingKillPending())
+		if (IsValid(Actor))
 		{
+			Pool.AllPooledActors.Remove(Actor);
 			Actor->Destroy();
 		}
 	}
-	Pool.AvailableActors.Empty();
+	Pool.AvailableCount = 0; // 重置计数
 
 	// 销毁所有使用中Actor
-	for (AActor* Actor : Pool.InUseActors)
+	for (AActor* InUseActor : Pool.InUseActors)
 	{
-		if (IsValid(Actor) && !Actor->IsPendingKillPending())
+		if (IsValid(InUseActor))
 		{
-			Actor->Destroy();
+			Pool.AllPooledActors.Remove(InUseActor);
+			InUseActor->Destroy();
 		}
 	}
 	Pool.InUseActors.Empty();
+	Pool.AllPooledActors.Empty();
 }
 
-TMap<TSubclassOf<AActor>, FActorPool>* UPoolSubsystem::GetPoolsForWorld(UWorld* World)
+TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* UPoolSubsystem::GetPoolsForWorld(UWorld* World)
 {
 	if (!World)
 	{
@@ -563,7 +718,7 @@ TMap<TSubclassOf<AActor>, FActorPool>* UPoolSubsystem::GetPoolsForWorld(UWorld* 
 	return nullptr;
 }
 
-const TMap<TSubclassOf<AActor>, FActorPool>* UPoolSubsystem::GetPoolsForWorld(UWorld* World) const
+const TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* UPoolSubsystem::GetPoolsForWorld(UWorld* World) const
 {
 	if (!World)
 	{

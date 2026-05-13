@@ -14,19 +14,18 @@ class APawn;
 
 /**
  * 单个Actor池的数据结构
+ * 使用 TQueue 提供 O(1) 的取出性能，TSet 提供 O(1) 的查找性能
  */
-USTRUCT()
 struct FActorPool
 {
-	GENERATED_BODY()
-
-	/** 当前可用的Actor列表 */
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<AActor>> AvailableActors;
+	/** 当前可用的Actor队列（使用 TQueue 保证 O(1) Pop 性能） */
+	TQueue<TObjectPtr<AActor>> AvailableActors;
 
 	/** 当前正在使用的Actor集合 */
-	UPROPERTY(Transient)
 	TSet<TObjectPtr<AActor>> InUseActors;
+
+	/** 所有池管理的Actor集合（包括可用和使用中，用于快速查询） */
+	TSet<TObjectPtr<AActor>> AllPooledActors;
 
 	/** 初始池大小 */
 	int32 InitialSize = 0;
@@ -37,7 +36,43 @@ struct FActorPool
 	/** 对应Actor类 */
 	TSubclassOf<AActor> Class;
 
-	FActorPool() : InitialSize(0), MaxSize(100), Class(nullptr) {}
+	/** 线程安全锁（保护 AvailableActors 和 InUseActors 的并发访问） */
+	mutable FCriticalSection PoolLock;
+
+	/** 统计信息：总请求次数 */
+	int32 TotalRequests = 0;
+
+	/** 统计信息：总释放次数 */
+	int32 TotalReleases = 0;
+
+	/** 统计信息：动态创建次数（池为空时创建） */
+	int32 DynamicCreations = 0;
+
+	/** 可用Actor数量（需要手动维护，因为TQueue没有Count方法） */
+	int32 AvailableCount = 0;
+
+	FActorPool() : InitialSize(0), MaxSize(100), Class(nullptr), TotalRequests(0), TotalReleases(0), DynamicCreations(0), AvailableCount(0) {}
+
+	/** 获取可用Actor数量（线程安全） */
+	int32 GetAvailableCount() const
+	{
+		FScopeLock ScopedLock(&PoolLock);
+		return AvailableCount;
+	}
+
+	/** 获取使用中Actor数量（线程安全） */
+	int32 GetInUseCount() const
+	{
+		FScopeLock ScopedLock(&PoolLock);
+		return InUseActors.Num();
+	}
+
+	/** 获取池总大小（线程安全） */
+	int32 GetTotalCount() const
+	{
+		FScopeLock ScopedLock(&PoolLock);
+		return AvailableCount + InUseActors.Num();
+	}
 };
 
 /** Actor从池中取出时委托 */
@@ -112,6 +147,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ObjectPool", meta = (WorldContext = "WorldContextObject"))
 	bool IsActorPooled(UObject* WorldContextObject, AActor* Actor) const;
 
+	/** 获取池统计信息（总请求、释放、动态创建次数） */
+	UFUNCTION(BlueprintCallable, Category = "ObjectPool", meta = (WorldContext = "WorldContextObject"))
+	void GetPoolStats(UObject* WorldContextObject, TSubclassOf<AActor> ActorClass,
+		int32& OutTotalRequests, int32& OutTotalReleases, int32& OutDynamicCreations) const;
+
+	/** 批量释放多个Actor回池 */
+	UFUNCTION(BlueprintCallable, Category = "ObjectPool", meta = (WorldContext = "WorldContextObject"))
+	void ReleaseActors(UObject* WorldContextObject, const TArray<AActor*>& Actors);
+
 	// === 配置接口 ===
 
 	/** 设置池配置文件 */
@@ -142,23 +186,23 @@ protected:
 	void OnWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
 
 private:
-	/** 按World存储的池映射。使用TWeakObjectPtr避免阻止World GC */
-	TMap<TWeakObjectPtr<UWorld>, TMap<TSubclassOf<AActor>, FActorPool>> WorldPools;
+	/** 按World存储的池映射。使用TWeakObjectPtr避免阻止World GC，使用指针避免拷贝问题 */
+	TMap<TWeakObjectPtr<UWorld>, TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>> WorldPools;
 
 	AActor* CreatePooledActor(UWorld* World, TSubclassOf<AActor> ActorClass, const FActorSpawnParameters& SpawnParams);
 	void ActivatePooledActor(AActor* Actor, const FTransform& SpawnTransform, AActor* Owner, APawn* Instigator);
 	void DeactivatePooledActor(AActor* Actor);
 	void ResetActorForPool(AActor* Actor);
 
-	FActorPool* GetOrCreatePool(UWorld* World, TSubclassOf<AActor> ActorClass);
-	FActorPool* FindPool(UWorld* World, TSubclassOf<AActor> ActorClass);
-	const FActorPool* FindPool(UWorld* World, TSubclassOf<AActor> ActorClass) const;
+	TSharedPtr<FActorPool> GetOrCreatePool(UWorld* World, TSubclassOf<AActor> ActorClass);
+	TSharedPtr<FActorPool> FindPool(UWorld* World, TSubclassOf<AActor> ActorClass);
+	TSharedPtr<const FActorPool> FindPool(UWorld* World, TSubclassOf<AActor> ActorClass) const;
 
 	void InternalClearPool(FActorPool& Pool);
 	void DestroyPool(FActorPool& Pool);
 
-	TMap<TSubclassOf<AActor>, FActorPool>* GetPoolsForWorld(UWorld* World);
-	const TMap<TSubclassOf<AActor>, FActorPool>* GetPoolsForWorld(UWorld* World) const;
+	TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* GetPoolsForWorld(UWorld* World);
+	const TMap<TSubclassOf<AActor>, TSharedPtr<FActorPool>>* GetPoolsForWorld(UWorld* World) const;
 
 	/** 获取指定World的池配置（从DataAsset或默认） */
 	FPoolConfig GetConfigForClass(TSubclassOf<AActor> ActorClass) const;
