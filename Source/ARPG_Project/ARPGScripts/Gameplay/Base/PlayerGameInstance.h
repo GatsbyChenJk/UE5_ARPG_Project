@@ -19,6 +19,7 @@ struct FShopItemManifest;
 class UMapPointManager;
 struct FOperationManifest;
 class UPlayerSessionManager;
+class UObjectPoolConfig;
 struct FStreamableHandle;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDataTableLoaded);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterChosen);
@@ -210,6 +211,12 @@ public:
 
 	void InitMapManager();
 	// Map points end
+
+	void PrewarmObjectPools();
+
+	// Object pool config
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Object Pool")
+	TObjectPtr<UObjectPoolConfig> PoolConfig;
 };
 
 template <typename CallbackFunc>

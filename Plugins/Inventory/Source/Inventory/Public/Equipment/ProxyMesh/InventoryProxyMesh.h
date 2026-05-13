@@ -31,6 +31,7 @@ protected:
 	TObjectPtr<USkeletalMeshComponent> Mesh;
 	
 	FTimerHandle TimerForNextTick;
+	bool bInitialized{false};
 	void DelayedInitializeOwner();
 	void DelayedInitialization();
 };

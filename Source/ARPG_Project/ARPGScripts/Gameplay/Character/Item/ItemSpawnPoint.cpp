@@ -1,4 +1,5 @@
 #include "ItemSpawnPoint.h"
+#include "ARPGScripts/Gameplay/Base/ARPGObjectPoolSystem/PoolSubsystem.h"
 
 AItemSpawnPoint::AItemSpawnPoint()
 {
@@ -122,10 +123,18 @@ void AItemSpawnPoint::SpawnItemAtIndex(int32 Index)
 		? FRotator(0.0f, FMath::RandRange(0.0f, 360.0f), 0.0f)
 		: GetActorRotation();
 
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-
-	AActor* NewItem = GetWorld()->SpawnActor(ItemConfig.ItemClass, &SpawnLocation, &SpawnRotation, SpawnParams);
+	FTransform SpawnTransform(SpawnRotation, SpawnLocation);
+	AActor* NewItem = nullptr;
+	if (UPoolSubsystem* PoolSub = GetGameInstance()->GetSubsystem<UPoolSubsystem>())
+	{
+		NewItem = PoolSub->RequestActor(this, ItemConfig.ItemClass, SpawnTransform);
+	}
+	else
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		NewItem = GetWorld()->SpawnActor(ItemConfig.ItemClass, &SpawnLocation, &SpawnRotation, SpawnParams);
+	}
 
 	if (NewItem)
 	{
@@ -162,12 +171,20 @@ void AItemSpawnPoint::RespawnItem(int32 Index)
 
 void AItemSpawnPoint::DestroyAllItems()
 {
+	UPoolSubsystem* PoolSub = GetGameInstance()->GetSubsystem<UPoolSubsystem>();
 	for (auto& Item : SpawnedItems)
 	{
 		if (IsValid(Item))
 		{
 			Item->OnDestroyed.RemoveDynamic(this, &AItemSpawnPoint::OnItemDestroyed);
-			Item->Destroy();
+			if (PoolSub)
+			{
+				PoolSub->ReleaseActor(this, Item);
+			}
+			else
+			{
+				Item->Destroy();
+			}
 		}
 	}
 	SpawnedItems.Empty();

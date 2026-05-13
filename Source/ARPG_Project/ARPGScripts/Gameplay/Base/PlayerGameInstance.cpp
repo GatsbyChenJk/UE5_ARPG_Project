@@ -3,10 +3,13 @@
 
 #include "PlayerGameInstance.h"
 #include "DataTableUtils.h"
+#include "ARPGObjectPoolSystem/ObjectPoolConfig.h"
+#include "ARPGObjectPoolSystem/PoolSubsystem.h"
 #include "ARPGScripts/Gameplay/Character/Lobby/Multiplayer/PlayerSessionManager.h"
 #include "ARPGScripts/Gameplay/Character/Lobby/ShoppingSystem/ShopItemManifest.h"
 #include "ARPGScripts/Gameplay/Character/SpecialOperations/FOperationManifest.h"
 #include "ARPGScripts/Gameplay/GameMap/MapPointManager.h"
+#include "ARPGScripts/Gameplay/Weapon/WeaponBase/ARPGBaseWeapon.h"
 
 UPlayerGameInstance::UPlayerGameInstance()
 {
@@ -24,6 +27,23 @@ void UPlayerGameInstance::Init()
 	Super::Init();
 
 	InitMapManager();
+	PrewarmObjectPools();
+}
+
+void UPlayerGameInstance::PrewarmObjectPools()
+{
+	if (!IsValid(PoolConfig)) return;
+
+	UPoolSubsystem* PoolSub = GetSubsystem<UPoolSubsystem>();
+	if (!PoolSub) return;
+
+	PoolSub->SetPoolConfig(PoolConfig);
+
+	for (TSubclassOf<AActor> ActorClass : PoolConfig->GetAutoPrewarmClasses())
+	{
+		const FPoolConfig& Config = PoolConfig->GetConfigForClass(ActorClass);
+		PoolSub->PrewarmPool(this, ActorClass, Config.InitialSize);
+	}
 }
 
 void UPlayerGameInstance::Shutdown()

@@ -297,6 +297,8 @@ struct FEquipmentFragment : public FInventoryItemFragment
 	FGameplayTag GetEquipmentType() const { return EquipmentType; }
 	void SetEquippedActor(AInventoryEquipActor* EquipActor);
 	EWeaponType GetWeaponConfigType() const {return WeaponConfigType;}
+	TSubclassOf<AInventoryEquipActor> GetEquipActorClass() const { return EquipActorClass; }
+	FName GetSocketAttachPoint() const { return SocketAttachPoint; }
 	
 private:
 	UPROPERTY(EditAnywhere, Category = "Inventory", meta = (ExcludeBaseStruct))

@@ -25,39 +25,29 @@ void AInventoryProxyMesh::BeginPlay()
 {
 	Super::BeginPlay();
 
-	DelayedInitializeOwner();
+	if (GetNetMode() != NM_DedicatedServer)
+	{
+		DelayedInitializeOwner();
+	}
 }
 
 void AInventoryProxyMesh::DelayedInitializeOwner()
 {
+	if (bInitialized) return;
+
 	UWorld* World = GetWorld();
-	if (!IsValid(World))
-	{
-		DelayedInitialization();
-		return;
-	}
+	if (!IsValid(World)) { DelayedInitialization(); return; }
 
 	APlayerController* PC = World->GetFirstPlayerController();
-	if (!IsValid(PC))
-	{
-		DelayedInitialization();
-		return;
-	}
+	if (!IsValid(PC)) { DelayedInitialization(); return; }
 
 	ACharacter* Character = Cast<ACharacter>(PC->GetPawn());
-	if (!IsValid(Character))
-	{
-		DelayedInitialization();
-		return;
-	}
+	if (!IsValid(Character)) { DelayedInitialization(); return; }
 
 	USkeletalMeshComponent* CharacterMesh = Character->GetMesh();
-	if (!IsValid(CharacterMesh))
-	{
-		DelayedInitialization();
-		return;
-	}
+	if (!IsValid(CharacterMesh)) { DelayedInitialization(); return; }
 
+	bInitialized = true;
 	SourceMesh = CharacterMesh;
 	Mesh->SetSkeletalMesh(SourceMesh->GetSkeletalMeshAsset());
 	Mesh->SetAnimInstanceClass(SourceMesh->GetAnimInstance()->GetClass());

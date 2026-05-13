@@ -4,6 +4,7 @@
 #include "Equipment/Component/InventoryEquipmentComponent.h"
 
 #include "ARPGScripts/Gameplay/AIController/InGameAIController.h"
+#include "ARPGScripts/Gameplay/Base/ARPGObjectPoolSystem/PoolSubsystem.h"
 #include "Equipment/EquipActor/InventoryEquipActor.h"
 #include "GameFramework/Character.h"
 #include "Inventory/InventoryItem.h"
@@ -11,6 +12,7 @@
 #include "Inventory/Manifest/ItemManifest.h"
 #include "Inventory/Util/InventoryStatics.h"
 #include "Items/Fragment/ItemFragment.h"
+#include "Net/UnrealNetwork.h"
 
 UInventoryEquipmentComponent::UInventoryEquipmentComponent()
 {
@@ -34,22 +36,34 @@ void UInventoryEquipmentComponent::InitializeOwner(APlayerController* PlayerCont
 void UInventoryEquipmentComponent::OnItemEquipped(UInventoryItem* EquippedItem)
 {
 	if (!IsValid(EquippedItem)) return;
-	if (!bIsProxy && !OwningPlayerController->HasAuthority()) return;
+
+	// ProxyMesh (bIsProxy=true) should spawn equipment locally on client
+	// Player character equipment should spawn on server and replicate
+	if (!bIsProxy && !GetOwner()->HasAuthority())
+	{
+		Server_OnItemEquipped(EquippedItem);
+		return;
+	}
 
 	FItemManifest& ItemManifest = EquippedItem->GetItemManifest();
 	FEquipmentFragment* EquipmentFragment = ItemManifest.GetFragmentTypeMutable<FEquipmentFragment>();
 	if (!EquipmentFragment) return;
 
+	if (FindEquippedActor(EquipmentFragment->GetEquipmentType())) return;
+
 	if (!OwningSkeletalMesh.IsValid()) return;
-	AInventoryEquipActor* SpawnedEquipActor = SpawnEquippedActor(EquipmentFragment, ItemManifest, OwningSkeletalMesh.Get());
+
+	// ProxyMesh uses direct spawn (no object pool), player character uses object pool
+	AInventoryEquipActor* SpawnedEquipActor = bIsProxy
+		? SpawnEquippedActorForProxy(EquipmentFragment, ItemManifest, OwningSkeletalMesh.Get())
+		: SpawnEquippedActor(EquipmentFragment, ItemManifest, OwningSkeletalMesh.Get());
+
+	if (!IsValid(SpawnedEquipActor)) return;
 
 	if (!bIsProxy)
 	{
 		EquipmentFragment->OnEquip(OwningPlayerController.Get());
 	}
-
-	// if (!OwningSkeletalMesh.IsValid()) return;
-	// AInventoryEquipActor* SpawnedEquipActor = SpawnEquippedActor(EquipmentFragment, ItemManifest, OwningSkeletalMesh.Get());
 
 	EquippedActors.Add(SpawnedEquipActor);
 }
@@ -57,6 +71,9 @@ void UInventoryEquipmentComponent::OnItemEquipped(UInventoryItem* EquippedItem)
 void UInventoryEquipmentComponent::OnItemUnequipped(UInventoryItem* UnequippedItem)
 {
 	if (!IsValid(UnequippedItem)) return;
+
+	// ProxyMesh (bIsProxy=true) should handle unequip locally on client
+	// Player character should only unequip on server
 	if (!bIsProxy && !OwningPlayerController->HasAuthority()) return;
 
 	FItemManifest& ItemManifest = UnequippedItem->GetItemManifest();
@@ -183,14 +200,45 @@ AInventoryEquipActor* UInventoryEquipmentComponent::SpawnEquippedActor(FEquipmen
                                                                        const FItemManifest& Manifest, USkeletalMeshComponent* AttachMesh)
 {
 	AInventoryEquipActor* SpawnedEquipActor = EquipmentFragment->SpawnAttachedActor(AttachMesh);
+	if (!IsValid(SpawnedEquipActor)) return nullptr;
+
 	SpawnedEquipActor->SetEquipmentType(EquipmentFragment->GetEquipmentType());
 	SpawnedEquipActor->SetOwner(GetOwner());
-	if (!bIsProxy)
-	{
-		SpawnedEquipActor->SetReplicates(true);
-		EquipmentFragment->SetEquippedActor(SpawnedEquipActor);
-	}
+
 	return SpawnedEquipActor;
+}
+
+AInventoryEquipActor* UInventoryEquipmentComponent::SpawnEquippedActorForProxy(FEquipmentFragment* EquipmentFragment,
+                                                                                const FItemManifest& Manifest, USkeletalMeshComponent* AttachMesh)
+{
+	// ProxyMesh spawns equipment locally on client without object pool
+	if (!EquipmentFragment || !IsValid(AttachMesh)) return nullptr;
+
+	UWorld* World = AttachMesh->GetWorld();
+	if (!IsValid(World)) return nullptr;
+
+	// Get equipment actor class from fragment
+	TSubclassOf<AInventoryEquipActor> EquipActorClass = EquipmentFragment->GetEquipActorClass();
+	if (!EquipActorClass) return nullptr;
+
+	// Spawn actor directly without object pool
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = GetOwner();
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AInventoryEquipActor* SpawnedActor = World->SpawnActor<AInventoryEquipActor>(
+		EquipActorClass, FTransform::Identity, SpawnParams);
+
+	if (!IsValid(SpawnedActor)) return nullptr;
+
+	// Attach to mesh
+	SpawnedActor->AttachToComponent(AttachMesh,
+		FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+		EquipmentFragment->GetSocketAttachPoint());
+
+	SpawnedActor->SetEquipmentType(EquipmentFragment->GetEquipmentType());
+
+	return SpawnedActor;
 }
 
 AInventoryEquipActor* UInventoryEquipmentComponent::FindEquippedActor(const FGameplayTag& EquipmentTypeTag)
@@ -207,7 +255,24 @@ void UInventoryEquipmentComponent::RemoveEquippedActor(const FGameplayTag& Equip
 	if (AInventoryEquipActor* EquippedActor = FindEquippedActor(EquipmentTypeTag); IsValid(EquippedActor))
 	{
 		EquippedActors.Remove(EquippedActor);
-		EquippedActor->Destroy();
+
+		// ProxyMesh equipment should be destroyed directly (not returned to pool)
+		if (bIsProxy)
+		{
+			EquippedActor->Destroy();
+		}
+		else
+		{
+			// Player character equipment uses object pool
+			if (UPoolSubsystem* PoolSub = GetWorld()->GetGameInstance()->GetSubsystem<UPoolSubsystem>())
+			{
+				PoolSub->ReleaseActor(this, EquippedActor);
+			}
+			else
+			{
+				EquippedActor->Destroy();
+			}
+		}
 	}
 }
 
@@ -230,10 +295,22 @@ void UInventoryEquipmentComponent::OnAIPossessedPawnChange(APawn* OldPawn, APawn
 }
 
 
+void UInventoryEquipmentComponent::Server_OnItemEquipped_Implementation(UInventoryItem* EquippedItem)
+{
+	OnItemEquipped(EquippedItem);
+}
+
 void UInventoryEquipmentComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	
 	InitPlayerController();
+}
+
+void UInventoryEquipmentComponent::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UInventoryEquipmentComponent,bIsProxy)
 }
 

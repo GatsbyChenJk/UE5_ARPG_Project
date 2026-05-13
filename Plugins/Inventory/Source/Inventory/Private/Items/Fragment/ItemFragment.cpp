@@ -4,6 +4,7 @@
 #include "AIController.h"
 #include "ARPGScripts/Gameplay/Base/ARPGCharacter/ARPGBaseCharacter.h"
 #include "ARPGScripts/Gameplay/Base/ARPGEventHandler/ARPGEventMacros.h"
+#include "ARPGScripts/Gameplay/Base/ARPGObjectPoolSystem/PoolSubsystem.h"
 #include "Equipment/EquipActor/InventoryEquipActor.h"
 #include "Widgets/Composite/InventoryCompositeBase.h"
 #include "Widgets/Composite/InventoryLeafImage.h"
@@ -46,7 +47,7 @@ void FTextFragment::Assimilate(UInventoryCompositeBase* Composite) const
 	UInventoryLeafText* LeafText = Cast<UInventoryLeafText>(Composite);
 	if (!IsValid(LeafText)) return;
 
-	LeafText->SetText(FragmentText);
+	LeafText->SetLeafText(FragmentText);
 }
 
 void FLabeledNumberFragment::Assimilate(UInventoryCompositeBase* Composite) const
@@ -443,16 +444,38 @@ AInventoryEquipActor* FEquipmentFragment::SpawnAttachedActor(USkeletalMeshCompon
 {
 	if (!IsValid(EquipActorClass) || !IsValid(AttachMesh)) return nullptr;
 
-	// TODO: Change Actor class type to use in attackcomponent
-	AInventoryEquipActor* SpawnedActor = AttachMesh->GetWorld()->SpawnActor<AInventoryEquipActor>(EquipActorClass);
-	SpawnedActor->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, SocketAttachPoint);
+	UWorld* World = AttachMesh->GetWorld();
+	AInventoryEquipActor* SpawnedActor = nullptr;
 
+	if (UPoolSubsystem* PoolSub = World->GetGameInstance()->GetSubsystem<UPoolSubsystem>())
+	{
+		SpawnedActor = Cast<AInventoryEquipActor>(
+			PoolSub->RequestActor(AttachMesh, EquipActorClass, FTransform::Identity));
+	}
+	else
+	{
+		SpawnedActor = World->SpawnActor<AInventoryEquipActor>(EquipActorClass);
+	}
+
+	if (SpawnedActor)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red,FString::Printf(TEXT("Weapon Attach mesh:%s,Attach Pos:%s,Role:%d"),
+			*AttachMesh->GetName(),*AttachMesh->GetSocketLocation(SocketAttachPoint).ToString(),AttachMesh->GetOwnerRole()));
+		SpawnedActor->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, SocketAttachPoint);
+	}
 	return SpawnedActor;
 }
 
 void FEquipmentFragment::DestroyAttachedActor() const
 {
-	if (EquippedActor.IsValid())
+	if (!EquippedActor.IsValid()) return;
+
+	UWorld* World = EquippedActor->GetWorld();
+	if (UPoolSubsystem* PoolSub = World->GetGameInstance()->GetSubsystem<UPoolSubsystem>())
+	{
+		PoolSub->ReleaseActor(EquippedActor.Get(), EquippedActor.Get());
+	}
+	else
 	{
 		EquippedActor->Destroy();
 	}

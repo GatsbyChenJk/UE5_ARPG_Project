@@ -7,9 +7,24 @@
 AInventoryEquipActor::AInventoryEquipActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
-	// 默认不复制，由调用者根据需要显式启用
-	// ProxyMesh 上的装备预览不需要网络复制
-	bReplicates = false;
+	PrimaryActorTick.bStartWithTickEnabled = false;
+	bReplicates = true;
+}
+
+void AInventoryEquipActor::OnActivateFromPool_Implementation(const FTransform& Transform)
+{
+	bIsPooledActive = true;
+}
+
+void AInventoryEquipActor::OnReturnToPool_Implementation()
+{
+	bIsPooledActive = false;
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+}
+
+bool AInventoryEquipActor::IsActiveInPool_Implementation() const
+{
+	return bIsPooledActive;
 }
 
 
