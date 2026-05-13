@@ -19,6 +19,13 @@ namespace GameItems
 		{
 			UE_DEFINE_GAMEPLAY_TAG(SteelMask,"GameItems.Equipment.Masks.SteelMask")
 		}
+
+		namespace Armors
+		{
+			UE_DEFINE_GAMEPLAY_TAG(SmallShield1,"GameItems.Equipment.Armors.SmallShield1")
+			UE_DEFINE_GAMEPLAY_TAG(MiddleShield1,"GameItems.Equipment.Armors.MiddleShield1")
+			UE_DEFINE_GAMEPLAY_TAG(LargeShield1,"GameItems.Equipment.Armors.LargeShield1")
+		}
 	}
 
 	namespace Comsumable

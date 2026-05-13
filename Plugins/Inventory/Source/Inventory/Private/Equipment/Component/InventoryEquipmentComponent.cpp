@@ -49,7 +49,10 @@ void UInventoryEquipmentComponent::OnItemEquipped(UInventoryItem* EquippedItem)
 	FEquipmentFragment* EquipmentFragment = ItemManifest.GetFragmentTypeMutable<FEquipmentFragment>();
 	if (!EquipmentFragment) return;
 
-	if (FindEquippedActor(EquipmentFragment->GetEquipmentType())) return;
+	if (FindEquippedActor(EquipmentFragment->GetEquipmentType()))
+	{
+		RemoveEquippedActor(EquipmentFragment->GetEquipmentType());
+	}
 
 	if (!OwningSkeletalMesh.IsValid()) return;
 

@@ -21,6 +21,13 @@ namespace GameItems
 		{
 			UE_DECLARE_GAMEPLAY_TAG_EXTERN(SteelMask)
 		}
+
+		namespace Armors
+		{
+			UE_DECLARE_GAMEPLAY_TAG_EXTERN(SmallShield1)
+			UE_DECLARE_GAMEPLAY_TAG_EXTERN(MiddleShield1)
+			UE_DECLARE_GAMEPLAY_TAG_EXTERN(LargeShield1)
+		}
 	}
 
 	namespace Comsumable
