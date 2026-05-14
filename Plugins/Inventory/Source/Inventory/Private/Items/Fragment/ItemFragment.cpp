@@ -462,6 +462,11 @@ AInventoryEquipActor* FEquipmentFragment::SpawnAttachedActor(USkeletalMeshCompon
 		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red,FString::Printf(TEXT("Weapon Attach mesh:%s,Attach Pos:%s,Role:%d"),
 			*AttachMesh->GetName(),*AttachMesh->GetSocketLocation(SocketAttachPoint).ToString(),AttachMesh->GetOwnerRole()));
 		SpawnedActor->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, SocketAttachPoint);
+		// ForceNetUpdate after attach so client receives attachment and visibility in the same replication frame
+		if (SpawnedActor->GetIsReplicated())
+		{
+			SpawnedActor->ForceNetUpdate();
+		}
 	}
 	return SpawnedActor;
 }

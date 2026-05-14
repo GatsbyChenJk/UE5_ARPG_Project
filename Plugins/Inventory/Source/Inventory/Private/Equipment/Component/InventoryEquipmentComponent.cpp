@@ -36,23 +36,15 @@ void UInventoryEquipmentComponent::InitializeOwner(APlayerController* PlayerCont
 void UInventoryEquipmentComponent::OnItemEquipped(UInventoryItem* EquippedItem)
 {
 	if (!IsValid(EquippedItem)) return;
-
-	// ProxyMesh (bIsProxy=true) should spawn equipment locally on client
-	// Player character equipment should spawn on server and replicate
+	
 	if (!bIsProxy && !GetOwner()->HasAuthority())
 	{
-		Server_OnItemEquipped(EquippedItem);
 		return;
 	}
 
 	FItemManifest& ItemManifest = EquippedItem->GetItemManifest();
 	FEquipmentFragment* EquipmentFragment = ItemManifest.GetFragmentTypeMutable<FEquipmentFragment>();
 	if (!EquipmentFragment) return;
-
-	if (FindEquippedActor(EquipmentFragment->GetEquipmentType()))
-	{
-		RemoveEquippedActor(EquipmentFragment->GetEquipmentType());
-	}
 
 	if (!OwningSkeletalMesh.IsValid()) return;
 
@@ -207,6 +199,7 @@ AInventoryEquipActor* UInventoryEquipmentComponent::SpawnEquippedActor(FEquipmen
 
 	SpawnedEquipActor->SetEquipmentType(EquipmentFragment->GetEquipmentType());
 	SpawnedEquipActor->SetOwner(GetOwner());
+	EquipmentFragment->SetEquippedActor(SpawnedEquipActor);
 
 	return SpawnedEquipActor;
 }

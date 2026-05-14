@@ -168,13 +168,7 @@ AActor* UPoolSubsystem::RequestActor(UObject* WorldContextObject, TSubclassOf<AA
 	// 4. 激活Actor（在锁外执行，避免阻塞）
 	ActivatePooledActor(Actor, SpawnTransform, Owner, Instigator);
 
-	// 5. 网络同步：强制立即更新网络状态
-	if (Actor->GetIsReplicated())
-	{
-		Actor->ForceNetUpdate();
-	}
-
-	// 6. 广播委托
+	// 5. 广播委托
 	OnActorRequested.Broadcast(ActorClass, Actor);
 
 	return Actor;
@@ -558,6 +552,9 @@ void UPoolSubsystem::ResetActorForPool(AActor* Actor)
 	{
 		return;
 	}
+
+	// FIX: Detach from parent before resetting, so re-attachment works correctly
+	Actor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
 	// 隐藏Actor并禁用碰撞和Tick
 	Actor->SetActorHiddenInGame(true);
