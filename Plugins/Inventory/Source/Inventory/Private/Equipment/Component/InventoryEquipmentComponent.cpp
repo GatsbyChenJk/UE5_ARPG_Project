@@ -224,6 +224,8 @@ AInventoryEquipActor* UInventoryEquipmentComponent::SpawnEquippedActorForProxy(F
 
 	AInventoryEquipActor* SpawnedActor = World->SpawnActor<AInventoryEquipActor>(
 		EquipActorClass, FTransform::Identity, SpawnParams);
+	GEngine->AddOnScreenDebugMessage(-1,2.0f,FColor::Red,FString::Printf(TEXT("Proxymesh Equip Actor: %s,OwnerRole:%d"),
+		*SpawnedActor->GetName(),GetOwnerRole()));
 
 	if (!IsValid(SpawnedActor)) return nullptr;
 
